@@ -10,7 +10,7 @@ $cfg = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{{.}}')) | C
 $id = $cfg.id
 $until = [DateTimeOffset]::Parse([string]$cfg.until, [Globalization.CultureInfo]::InvariantCulture).LocalDateTime
 if ($until -le (Get-Date)) { throw 'The rescue window has expired.' }
-$base = Join-Path $env:ProgramData "Paw\$id"
+$base = Join-Path $env:ProgramFiles "Paw\Sessions\$id"
 $task = "Paw-SSH-$id"
 $cleanupTask = "Paw-Cleanup-$id"
 $account = "paw$id"
@@ -131,12 +131,15 @@ $locked = $false
 $created = $false
 $cleanupFile = Join-Path $base 'cleanup.ps1'
 $tunnel = $null
+function Run-Cleanup {
+    & ([ScriptBlock]::Create([IO.File]::ReadAllText($cleanupFile)))
+}
 try {
     try { $locked = $lock.WaitOne(0) }
     catch [Threading.AbandonedMutexException] { $locked = $true }
     if (!$locked) { throw 'A Paw window is already running on this computer.' }
     if (Test-Path -LiteralPath $base) {
-        if (Test-Path -LiteralPath $cleanupFile) { & $cleanupFile }
+        if (Test-Path -LiteralPath $cleanupFile) { Run-Cleanup }
         if (Test-Path -LiteralPath $base) { Remove-Item -LiteralPath $base -Recurse -Force }
     }
     New-Item -ItemType Directory -Path $base -Force | Out-Null
@@ -144,8 +147,10 @@ try {
     Secure-Directory $base
     Stage "Paw rescue log: $log"
     Invoke-WebRequest -UseBasicParsing -Uri $cfg.cleanup -OutFile $cleanupFile -TimeoutSec 20
-    Unblock-File -LiteralPath $cleanupFile
-    $cleanupAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -File "'+$cleanupFile+'"')
+    $quotedCleanupPath = $cleanupFile.Replace("'", "''")
+    $cleanupCommand = "& ([ScriptBlock]::Create([IO.File]::ReadAllText('$quotedCleanupPath')))"
+    $encodedCleanup = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($cleanupCommand))
+    $cleanupAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -EncodedCommand $encodedCleanup"
     $fallback = New-ScheduledTaskTrigger -Once -At $until.AddMinutes(5)
     Register-ScheduledTask -TaskName $cleanupTask -Action $cleanupAction -Trigger $fallback -User SYSTEM -RunLevel Highest -Force | Out-Null
 
@@ -235,10 +240,15 @@ try {
     }
 } finally {
     if ($tunnel -and !$tunnel.HasExited) { Stop-Process -Id $tunnel.Id -Force -ErrorAction SilentlyContinue }
-    if ($created) {
-        if (Test-Path -LiteralPath $cleanupFile) { & $cleanupFile }
-        elseif (Test-Path -LiteralPath $base) { Remove-Item -LiteralPath $base -Recurse -Force }
+    try {
+        if ($created) {
+            if (Test-Path -LiteralPath $cleanupFile) { Run-Cleanup }
+            elseif (Test-Path -LiteralPath $base) { Remove-Item -LiteralPath $base -Recurse -Force }
+        }
+    } catch {
+        Write-Warning ('Paw cleanup could not finish. Run the cleanup command from the web page. ' + $_.Exception.Message)
+    } finally {
+        if ($locked) { $lock.ReleaseMutex() }
+        $lock.Dispose()
     }
-    if ($locked) { $lock.ReleaseMutex() }
-    $lock.Dispose()
 }

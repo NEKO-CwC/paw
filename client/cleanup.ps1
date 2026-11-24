@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Continue'
 $id = '{{.}}'
-$base = Join-Path $env:ProgramData "Paw\$id"
+$base = Join-Path $env:ProgramFiles "Paw\Sessions\$id"
 foreach ($task in @("Paw-SSH-$id","Paw-Cleanup-$id")) {
     Stop-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue
