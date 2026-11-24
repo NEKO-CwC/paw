@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Paw · Windows 远程协助</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="brand">Paw</p>
+      <h1>Windows 远程协助</h1>
+      <p id="status" role="status">正在读取接入状态…</p>
+    </header>
+
+    <section id="assist" hidden aria-label="客户端接入">
+      <p>在目标电脑打开 <strong>管理员 PowerShell</strong>，粘贴并运行接入命令。保持窗口打开，按 Ctrl+C 结束协助。</p>
+      <div class="row">
+        <button id="copy-start" type="button" disabled>复制接入命令</button>
+        <button id="copy-cleanup" type="button" class="secondary" disabled>复制清理命令</button>
+      </div>
+      <pre id="start-command" hidden></pre>
+      <p id="assist-feedback" role="status"></p>
+    </section>
+
+    <section id="admin" hidden aria-label="管理员操作">
+      <h2>管理员操作</h2>
+      <form id="login">
+        <label for="password">管理员密码</label>
+        <div class="row compact">
+          <input id="password" type="password" required maxlength="256" autocomplete="current-password">
+          <button id="login-button" type="submit">登录</button>
+        </div>
+      </form>
+      <div id="controls" hidden>
+        <label for="minutes">窗口时长（分钟）</label>
+        <div class="row">
+          <input id="minutes" type="number" min="1" step="1" required>
+          <button id="open" type="button">开启</button>
+          <button id="extend" type="button">延长</button>
+          <button id="close" type="button" class="secondary">关闭</button>
+          <button id="logout" type="button" class="secondary">退出</button>
+        </div>
+        <div id="session-details" hidden>
+          <h3>客户端接入</h3>
+          <div class="row">
+            <button type="button" id="copy-link">复制接入链接</button>
+            <button type="button" id="copy-admin-start" class="secondary">复制接入命令</button>
+            <a id="open-link" target="_blank" rel="noopener">打开接入页</a>
+          </div>
+          <h3>SSH 连接</h3>
+          <pre id="ssh"></pre>
+        </div>
+        <details class="proxy">
+          <summary>SSH 下载代理</summary>
+          <form id="proxy">
+            <p>主机留空时直连下载。保存后，下次运行接入命令时读取新配置。</p>
+            <div class="fields">
+              <label>主机<input name="host" placeholder="proxy.example.com" maxlength="253"></label>
+              <label>端口<input name="port" type="number" min="1" max="65535" value="22"></label>
+              <label>用户名<input name="user" maxlength="64" autocomplete="off"></label>
+              <label>密码<input name="password" type="password" maxlength="256" autocomplete="new-password"></label>
+            </div>
+            <label>SSH 主机指纹<input name="hostKey" placeholder="SHA256:…" maxlength="50" autocomplete="off"></label>
+            <button id="save-proxy" type="submit">保存代理</button>
+          </form>
+        </details>
+      </div>
+      <p id="feedback" role="status"></p>
+    </section>
+  </main>
+</body>
+</html>

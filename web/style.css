@@ -1,0 +1,31 @@
+:root { color-scheme: light; font-family: Inter, "Segoe UI", system-ui, sans-serif; color: #172b26; background: #edf2ef; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; }
+main { width: min(100% - 32px, 740px); margin: clamp(26px, 8vh, 84px) auto; background: #fff; padding: clamp(20px, 5vw, 42px); border: 1px solid #cedbd3; border-radius: 15px; }
+header { padding-bottom: 12px; border-bottom: 1px solid #dfe7e2; }
+.brand { color: #1c634a; font-size: 1.1rem; font-weight: 700; margin: 0 0 6px; }
+h1 { font-size: clamp(1.75rem, 5vw, 2.35rem); margin: 0; letter-spacing: -0.035em; }
+h2 { font-size: 1.2rem; }
+h3 { font-size: 1rem; margin-bottom: 8px; }
+p, pre { line-height: 1.55; }
+section { margin-top: 22px; }
+.row { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; }
+.compact { max-width: 460px; }
+.compact input { flex: 1; min-width: 0; }
+input, button { font: inherit; border-radius: 6px; min-height: 42px; padding: 8px 11px; }
+input { border: 1px solid #9cafa3; color: inherit; max-width: 100%; }
+input[type=number] { width: 105px; }
+label { display: block; margin: 0 0 6px; }
+button { border: 1px solid #1c634a; font-weight: 600; background: #1c634a; color: #fff; cursor: pointer; }
+button.secondary { background: #f4f8f5; color: #1b503d; border-color: #afc6b9; }
+button:disabled { cursor: default; opacity: 0.54; }
+a { color: #15553e; font-weight: 600; }
+:focus-visible { outline: 3px solid #24503d; outline-offset: 2px; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: "IBM Plex Mono", ui-monospace, monospace; background: #f3f6f4; padding: 12px; border-radius: 6px; }
+.proxy { margin-top: 20px; border: 1px solid #dfe7e2; border-radius: 7px; padding: 12px; }
+.proxy summary { font-weight: 600; cursor: pointer; }
+.proxy input { width: 100%; display: block; margin-top: 4px; }
+.fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px 12px; }
+#feedback:not(:empty), #assist-feedback:not(:empty) { min-height: 1.5em; }
+@media (max-width: 500px) { .fields { grid-template-columns: 1fr; } }
