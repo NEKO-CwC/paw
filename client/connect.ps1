@@ -244,12 +244,33 @@ try {
     & icacls.exe $identity /inheritance:r /grant:r ('*' + $identityUser.User.Value + ':F') | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Could not protect the relay identity.' }
     [IO.File]::WriteAllText($known, [string]$cfg.knownHost + [Environment]::NewLine, [Text.Encoding]::ASCII)
-    $forward = "0.0.0.0:$($cfg.accessPort):127.0.0.1:$port"
-    $sshArgs = '-NT -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes ' +
-        '-o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 ' +
-        '-o UserKnownHostsFile="' + $known + '" -i "' + $identity + '" -R ' + $forward + ' -p ' + $cfg.relayPort + ' paw@' + $cfg.relayHost
+
+    # OpenSSH parses known-hosts paths itself. Quote them in ssh_config to preserve spaces.
+    $relayConfig = Join-Path $base 'relay.conf'
+    $relayOptions = @(
+        'Host paw-relay'
+        "    HostName $($cfg.relayHost)"
+        "    Port $($cfg.relayPort)"
+        '    User paw'
+        '    BatchMode yes'
+        '    IdentitiesOnly yes'
+        '    StrictHostKeyChecking yes'
+        '    GlobalKnownHostsFile none'
+        ('    UserKnownHostsFile "' + $known.Replace('\','/').Replace('%','%%') + '"')
+        ('    IdentityFile "' + $identity.Replace('\','/').Replace('%','%%') + '"')
+        '    ExitOnForwardFailure yes'
+        '    ServerAliveInterval 15'
+        '    ServerAliveCountMax 3'
+        "    RemoteForward 0.0.0.0:$($cfg.accessPort) 127.0.0.1:$port"
+    )
+    [IO.File]::WriteAllLines($relayConfig, [string[]]$relayOptions, [Text.UTF8Encoding]::new($false))
+
     Stage 'Connecting the rescue tunnel. Keep this window open, or press Ctrl+C to end it.'
-    $tunnel = Start-Process -FilePath (Join-Path $bin 'ssh.exe') -ArgumentList $sshArgs -NoNewWindow -PassThru
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = Join-Path $bin 'ssh.exe'
+    $startInfo.Arguments = '-NT -F "' + $relayConfig + '" paw-relay'
+    $startInfo.UseShellExecute = $false
+    $tunnel = [Diagnostics.Process]::Start($startInfo)
     while (!$tunnel.WaitForExit(15000)) {
         try {
             $lease = Invoke-RestMethod -UseBasicParsing -Uri "$($cfg.endpoint)/lease" -TimeoutSec 5
@@ -265,11 +286,15 @@ try {
             if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 410) { break }
         }
     }
-    if ($tunnel.HasExited -and $tunnel.ExitCode -ne 0 -and (Get-Date) -lt $until) {
-        throw "The rescue tunnel disconnected with code $($tunnel.ExitCode)."
+    if ($tunnel.HasExited) {
+        $exitCode = $tunnel.ExitCode
+        if ($exitCode -ne 0 -and (Get-Date) -lt $until) {
+            throw "The rescue tunnel disconnected with code $exitCode."
+        }
     }
 } finally {
     if ($tunnel -and !$tunnel.HasExited) { Stop-Process -Id $tunnel.Id -Force -ErrorAction SilentlyContinue }
+    if ($tunnel) { $tunnel.Dispose() }
     try {
         if ($created) {
             if (Test-Path -LiteralPath $cleanupFile) { Run-Cleanup }
