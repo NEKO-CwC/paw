@@ -181,10 +181,16 @@ try {
     $keygenArguments = '-q -t ed25519 -f "' + $hostKey + '" -N ""'
     $keygen = Start-Process -FilePath (Join-Path $bin 'ssh-keygen.exe') -ArgumentList $keygenArguments -NoNewWindow -PassThru -Wait
     if ($keygen.ExitCode -ne 0 -or !(Test-Path -LiteralPath $hostKey)) { throw 'Unable to generate the Windows SSH host key.' }
-    & icacls.exe $hostKey /setowner '*S-1-5-32-544' | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Could not set the SSH host key owner.' }
-    & icacls.exe $hostKey /inheritance:r /grant:r '*S-1-5-32-544:F' '*S-1-5-18:F' | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Could not protect the SSH host key.' }
+    # Replace the explicit owner-user ACE that Windows ssh-keygen sets on the file.
+    $hostKeyAcl = New-Object Security.AccessControl.FileSecurity
+    $hostKeyAcl.SetAccessRuleProtection($true, $false)
+    $systemSid = [Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+    $adminsSid = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+    $hostKeyAcl.SetOwner($adminsSid)
+    foreach ($sid in @($systemSid, $adminsSid)) {
+        $hostKeyAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid, 'FullControl', 'Allow'))
+    }
+    Set-Acl -LiteralPath $hostKey -AclObject $hostKeyAcl
 
     $port = Free-LocalPort
     $sshdConfig = Join-Path $base 'sshd_config'
