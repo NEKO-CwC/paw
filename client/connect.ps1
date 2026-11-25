@@ -1,20 +1,21 @@
 $ErrorActionPreference = 'Stop'
-$principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
+$identityUser = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = [Security.Principal.WindowsPrincipal]::new($identityUser)
 if (!$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw 'Open a 64-bit PowerShell window as administrator and paste the command again.'
 }
-if (![Environment]::Is64BitProcess -or [Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'X64') {
+if (![Environment]::Is64BitProcess -or $env:PROCESSOR_ARCHITECTURE -ne 'AMD64') {
     throw 'Paw currently requires x64 Windows and 64-bit PowerShell.'
 }
 $cfg = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{{.}}')) | ConvertFrom-Json
 $id = $cfg.id
-$until = [DateTimeOffset]::Parse([string]$cfg.until, [Globalization.CultureInfo]::InvariantCulture).LocalDateTime
+$until = ([DateTimeOffset]$cfg.until).LocalDateTime
 if ($until -le (Get-Date)) { throw 'The rescue window has expired.' }
 $base = Join-Path $env:ProgramFiles "Paw\Sessions\$id"
 $task = "Paw-SSH-$id"
 $cleanupTask = "Paw-Cleanup-$id"
 $account = "paw$id"
-$cache = Join-Path $env:ProgramFiles 'Paw\Cache'
+$cache = Join-Path $env:ProgramFiles 'CodexSupport\OpenSSH'
 $log = Join-Path $env:TEMP "Paw-$id.log"
 
 function Stage([string]$message) {
@@ -60,7 +61,7 @@ function Get-ArchiveThroughProxy([string]$destination) {
     if (Test-Listening $proxyPort) { $proxyPort = Free-LocalPort }
     $secret = Join-Path $base 'proxy-password'
     $logFile = Join-Path $base 'proxy.log'
-    $plinkArguments = '-batch -noagent -N -T -D 127.0.0.1:' + $proxyPort +
+    $plinkArguments = '-ssh -batch -noagent -N -T -D 127.0.0.1:' + $proxyPort +
         ' -hostkey "' + $proxy.hostKey + '" -l ' + $proxy.user + ' -P ' + $proxy.port
     if ($proxy.password) {
         [IO.File]::WriteAllText($secret, [string]$proxy.password, [Text.UTF8Encoding]::new($false))
@@ -88,18 +89,27 @@ function Get-ArchiveThroughProxy([string]$destination) {
     }
 }
 function Open-SSHCache {
-    $version = Join-Path $cache $cfg.archiveHash
-    $bin = Join-Path $version 'OpenSSH-Win64'
     $required = @('ssh.exe','sshd.exe','ssh-keygen.exe','sshd-session.exe','sshd-auth.exe','ssh-shellhost.exe','libcrypto.dll')
-    $missing = $required | Where-Object { !(Test-Path -LiteralPath (Join-Path $bin $_) -PathType Leaf) }
-    if (!$missing) { Stage 'Using cached OpenSSH.'; return $bin }
+    $priorCache = Join-Path $env:ProgramFiles 'Paw\Cache'
+    $version = Join-Path $cache $cfg.archiveHash
+    foreach ($root in @($cache, $priorCache)) {
+        $bin = Join-Path (Join-Path $root $cfg.archiveHash) 'OpenSSH-Win64'
+        $missing = $required | Where-Object { !(Test-Path -LiteralPath (Join-Path $bin $_) -PathType Leaf) }
+        if (!$missing) { Stage ('Using cached OpenSSH at ' + $bin); return $bin }
+    }
+    $bin = Join-Path $version 'OpenSSH-Win64'
     New-Item -ItemType Directory -Path $version -Force | Out-Null
     $archive = Join-Path $version 'openssh.zip'
     $partial = "$archive.part"
     $staging = Join-Path $version 'extracting'
     try {
         if (!(Test-Path -LiteralPath $archive) -or (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash -ne $cfg.archiveHash) {
-            if ($cfg.proxy.host) { Get-ArchiveThroughProxy $partial }
+            $oldArchive = Join-Path (Join-Path $priorCache $cfg.archiveHash) 'openssh.zip'
+            if ((Test-Path -LiteralPath $oldArchive -PathType Leaf) -and
+                (Get-FileHash -Algorithm SHA256 -LiteralPath $oldArchive).Hash -eq $cfg.archiveHash) {
+                Stage 'Reusing the existing OpenSSH archive.'
+                Copy-Item -LiteralPath $oldArchive -Destination $partial
+            } elseif ($cfg.proxy.host) { Get-ArchiveThroughProxy $partial }
             else {
                 Stage 'Downloading OpenSSH over HTTPS...'
                 Download-Verified 'OpenSSH-Win64.zip' $cfg.archiveHash $partial
@@ -146,6 +156,7 @@ try {
     $created = $true
     Secure-Directory $base
     Stage "Paw rescue log: $log"
+    Stage 'Preparing session cleanup...'
     Invoke-WebRequest -UseBasicParsing -Uri $cfg.cleanup -OutFile $cleanupFile -TimeoutSec 20
     $quotedCleanupPath = $cleanupFile.Replace("'", "''")
     $cleanupCommand = "& ([ScriptBlock]::Create([IO.File]::ReadAllText('$quotedCleanupPath')))"
@@ -154,7 +165,18 @@ try {
     $fallback = New-ScheduledTaskTrigger -Once -At $until.AddMinutes(5)
     Register-ScheduledTask -TaskName $cleanupTask -Action $cleanupAction -Trigger $fallback -User SYSTEM -RunLevel Highest -Force | Out-Null
 
-    $bin = Open-SSHCache
+    $cacheLock = [Threading.Mutex]::new($false, 'Global\CodexSupport-OpenSSH-cache')
+    $cacheLocked = $false
+    try {
+        try { $cacheLocked = $cacheLock.WaitOne([TimeSpan]::FromMinutes(3)) }
+        catch [Threading.AbandonedMutexException] { $cacheLocked = $true }
+        if (!$cacheLocked) { throw 'Timed out waiting for the OpenSSH cache.' }
+        $bin = Open-SSHCache
+    } finally {
+        if ($cacheLocked) { $cacheLock.ReleaseMutex() }
+        $cacheLock.Dispose()
+    }
+    Stage 'Generating the Windows SSH host key...'
     $hostKey = Join-Path $base 'host_ed25519'
     $keygenArguments = '-q -t ed25519 -f "' + $hostKey + '" -N ""'
     $keygen = Start-Process -FilePath (Join-Path $bin 'ssh-keygen.exe') -ArgumentList $keygenArguments -NoNewWindow -PassThru -Wait
@@ -176,6 +198,7 @@ try {
     $sshd = Join-Path $bin 'sshd.exe'
     & $sshd -t -f $sshdConfig
     if ($LASTEXITCODE -ne 0) { throw 'Windows SSH configuration failed validation.' }
+    Stage 'Creating the temporary Windows SSH account...'
     $password = ConvertTo-SecureString $cfg.password -AsPlainText -Force
     try {
         New-LocalUser -Name $account -Password $password -Description "Paw rescue $id" -AccountExpires $until.AddMinutes(5) -UserMayNotChangePassword | Out-Null
@@ -205,13 +228,14 @@ try {
         $details = Get-Content -LiteralPath (Join-Path $base 'sshd.log') -Tail 20 -ErrorAction SilentlyContinue
         throw ("Windows SSH failed to start. " + ($details -join ' '))
     }
+    Stage 'Registering the Windows SSH host key...'
     $payload = @{key = (Get-Content -LiteralPath "$hostKey.pub" -Raw).Trim()} | ConvertTo-Json -Compress
     Invoke-WebRequest -UseBasicParsing -Method POST -Uri "$($cfg.endpoint)/host-key" -ContentType 'application/json' -Body $payload -TimeoutSec 15 | Out-Null
 
     $identity = Join-Path $base 'relay-key'
     $known = Join-Path $base 'known_hosts'
     [IO.File]::WriteAllText($identity, [string]$cfg.relayKey, [Text.Encoding]::ASCII)
-    & icacls.exe $identity /inheritance:r /grant:r ("{0}\{1}:F" -f $env:USERDOMAIN,$env:USERNAME) | Out-Null
+    & icacls.exe $identity /inheritance:r /grant:r ('*' + $identityUser.User.Value + ':F') | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Could not protect the relay identity.' }
     [IO.File]::WriteAllText($known, [string]$cfg.knownHost + [Environment]::NewLine, [Text.Encoding]::ASCII)
     $forward = "0.0.0.0:$($cfg.accessPort):127.0.0.1:$port"
@@ -223,7 +247,7 @@ try {
     while (!$tunnel.WaitForExit(15000)) {
         try {
             $lease = Invoke-RestMethod -UseBasicParsing -Uri "$($cfg.endpoint)/lease" -TimeoutSec 5
-            $next = [DateTimeOffset]::Parse([string]$lease.until,[Globalization.CultureInfo]::InvariantCulture).LocalDateTime
+            $next = ([DateTimeOffset]$lease.until).LocalDateTime
             if ($next -gt $until) {
                 $fallback = New-ScheduledTaskTrigger -Once -At $next.AddMinutes(5)
                 Set-ScheduledTask -TaskName $cleanupTask -Trigger $fallback | Out-Null

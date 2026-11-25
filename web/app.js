@@ -6,14 +6,36 @@ const match = /^\/assist\/([A-Za-z0-9_-]{32})$/.exec(location.pathname);
 const token = match?.[1];
 
 function launcher(url) {
-    return "& { try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; " +
-        "$r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 45 -Uri '" + url +
-        "'; $s = $r.Content; if ($s -is [byte[]]) { $s = [Text.Encoding]::UTF8.GetString($s) }; " +
-        "& ([ScriptBlock]::Create([string]$s)) } catch { Write-Warning $_.Exception.Message } }";
+    return [
+        "& {",
+        "    $ErrorActionPreference = 'Stop'",
+        "    $log = Join-Path $env:TEMP 'Paw-startup.log'",
+        "    $stage = 'Download'",
+        "    try {",
+        "        $recording = Start-Transcript -Path $log -Append -ErrorAction SilentlyContinue",
+        "        Write-Host ('Log: ' + $log)",
+        "        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
+        "        Write-Host 'Downloading the Paw script...'",
+        "        $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 45 -Uri '" + url + "'",
+        "        $stage = 'Parse'",
+        "        $s = $r.Content",
+        "        if ($s -is [byte[]]) { $s = [Text.Encoding]::UTF8.GetString($s) }",
+        "        $script = [ScriptBlock]::Create([string]$s)",
+        "        $stage = 'Run'",
+        "        & $script",
+        "    } catch {",
+        "        Write-Host ('Paw failed [{0}]: {1}' -f $stage, $_.Exception.Message) -ForegroundColor Red",
+        "        if ($_.InvocationInfo.ScriptLineNumber) { Write-Host ('PowerShell line: ' + $_.InvocationInfo.ScriptLineNumber) }",
+        "        Read-Host 'Press Enter to close this message' | Out-Null",
+        "    } finally {",
+        "        if ($recording) { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null }",
+        "    }",
+        "}"
+    ].join("\n");
 }
 
 function installCommand(url) {
-    return launcher(location.origin + '/session/' + new URL(url).pathname.split('/').pop() + '/bootstrap.ps1');
+    return launcher(location.origin + '/session/' + new URL(url).pathname.split('/').pop() + '/bootstrap.ps1?v=2');
 }
 
 async function copy(value, note) {
@@ -196,3 +218,52 @@ function adminPage() {
 }
 if (token) assistPage();
 else adminPage();
+
+const encoder = new TextEncoder();
+const textLimit = 1024 * 1024;
+
+for (const panel of document.querySelectorAll('[data-text-slot]')) {
+    const field = panel.querySelector('textarea');
+    const save = panel.querySelector('[data-save]');
+    const size = panel.querySelector('[data-size]');
+    const feedback = panel.querySelector('[data-status]');
+    const url = '/api/text/' + panel.dataset.textSlot;
+    let saved = '';
+    let saving = false;
+
+    function update() {
+        const bytes = encoder.encode(field.value).length;
+        size.textContent = bytes.toLocaleString('zh-CN') + ' / 1,048,576 字节';
+        save.disabled = saving || bytes > textLimit || field.disabled || saved === field.value;
+    }
+    field.addEventListener('input', () => {
+        feedback.textContent = '';
+        update();
+    });
+    save.addEventListener('click', async () => {
+        if (save.disabled) return;
+        const draft = field.value;
+        saving = true;
+        update();
+        feedback.textContent = '正在保存…';
+        try {
+            await request(url, {method:'POST', headers:{'Content-Type':'text/plain; charset=utf-8'}, body:draft});
+            saved = draft;
+            feedback.textContent = field.value === saved ? '已保存' : '还有未保存的改动';
+        } catch {
+            feedback.textContent = '保存失败，请重试。';
+        } finally {
+            saving = false;
+            update();
+        }
+    });
+    fetch(url, {cache:'no-store'}).then(response => {
+        if (!response.ok) throw new Error();
+        return response.text();
+    }).then(value => {
+        field.value = value;
+        saved = field.value;
+        field.disabled = false;
+        update();
+    }).catch(() => { feedback.textContent = '读取失败，请刷新重试。'; });
+}

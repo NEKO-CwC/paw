@@ -27,7 +27,7 @@ docker run -d --name paw --restart unless-stopped \
 | `PAW_DEFAULT_MINUTES` | `240` | 默认接入窗口时长 |
 | `PAW_ADMIN_PASSWORD_FILE` | `/data/admin-password` | 管理员密码文件 |
 
-接入窗口只在运行中的容器内有效。代理配置和中继主机密钥保存在 `/data`。
+网页提供两个公开共享文本框，每个最多 1 MB。接入窗口只在运行中的容器内有效。共享文本、代理配置和中继主机密钥保存在 `/data`。反向代理需允许 `/api/text/` 接收 1 MB 的请求体。
 
 ## 镜像
 

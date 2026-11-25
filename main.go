@@ -373,6 +373,8 @@ func (app *application) routes() http.Handler {
 	})
 	mux.HandleFunc("GET /api/admin", app.admin)
 	mux.HandleFunc("POST /api/admin", app.admin)
+	mux.HandleFunc("GET /api/text/{slot}", app.sharedText)
+	mux.HandleFunc("POST /api/text/{slot}", app.sharedText)
 	mux.HandleFunc("GET /session/{token}/bootstrap.ps1", app.bootstrap)
 	mux.HandleFunc("GET /session/{token}/lease", app.lease)
 	mux.HandleFunc("POST /session/{token}/host-key", app.reportHostKey)

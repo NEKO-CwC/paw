@@ -27,5 +27,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: "IBM Plex Mon
 .proxy summary { font-weight: 600; cursor: pointer; }
 .proxy input { width: 100%; display: block; margin-top: 4px; }
 .fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px 12px; }
+.text-slot textarea { width: 100%; resize: vertical; font: inherit; color: inherit; border: 1px solid #9cafa3; border-radius: 6px; padding: 8px 11px; }
+.text-slot output { font-size: 0.85rem; }
 #feedback:not(:empty), #assist-feedback:not(:empty) { min-height: 1.5em; }
 @media (max-width: 500px) { .fields { grid-template-columns: 1fr; } }

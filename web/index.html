@@ -71,6 +71,31 @@
       </div>
       <p id="feedback" role="status"></p>
     </section>
+
+    <section aria-labelledby="shared-text-heading">
+      <h2 id="shared-text-heading">共享文本</h2>
+      <div class="fields">
+        <div class="text-slot" data-text-slot="a">
+          <label for="text-a">文本 A</label>
+          <textarea id="text-a" rows="6" disabled></textarea>
+          <div class="row">
+            <button type="button" data-save disabled>保存 A</button>
+            <output data-size for="text-a"></output>
+            <output data-status aria-live="polite"></output>
+          </div>
+        </div>
+        <div class="text-slot" data-text-slot="b">
+          <label for="text-b">文本 B</label>
+          <textarea id="text-b" rows="6" disabled></textarea>
+          <div class="row">
+            <button type="button" data-save disabled>保存 B</button>
+            <output data-size for="text-b"></output>
+            <output data-status aria-live="polite"></output>
+          </div>
+        </div>
+      </div>
+      <p>访客可查看和编辑。刷新后显示最后保存的内容。每框最多 1 MB。</p>
+    </section>
   </main>
 </body>
 </html>
